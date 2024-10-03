@@ -1,0 +1,37 @@
+let
+    Source = PMO_V3_Portefeuille_Consolidé,
+    
+    #"Filtre Focus Full 2024, AM et AM_ 1  1" = Table.SelectRows(#"Source", each ([Source.Name] <> "PMO_Centrale_PTF-V3_2022_FULL.xlsx" and [Source.Name] <> "PMO_Centrale_PTF-V3_2023_FULL.xlsx")),
+    #"Filtre Focus Full 2024, AM et AM_ 1  2" = Table.ReplaceValue(#"Filtre Focus Full 2024, AM et AM_ 1  1","PMO_Centrale_PTF-V3.xlsx","PMO_Centrale_PTF-V3.FULL",Replacer.ReplaceText,{"Source.Name"}),
+    #"Filtre Focus Full 2024, AM et AM_ 1  3" = Table.TransformColumns(#"Filtre Focus Full 2024, AM et AM_ 1  2", {{"Source.Name", each Text.Middle(_, 20, 7), type text}}),
+    #"Filtre Focus Full 2024, AM et AM_ 1 4" = Table.SelectRows(#"Filtre Focus Full 2024, AM et AM_ 1  3", each [Source.Name] = Dossier_AM or [Source.Name] = Dossier_AM_1 or [Source.Name] = "FULL"),
+    #"Filtre PRJ-01735" = Table.SelectRows(#"Filtre Focus Full 2024, AM et AM_ 1 4", each ([code] = "PRJ-01735")),
+    #"Filtre TRIG = EDI 1" = Table.TransformColumns(#"Filtre PRJ-01735", {{"Trigramme", each Text.Start(_, 3), type text}}),
+    #"Filtre TRIG = EDI 2" = Table.SelectRows(#"Filtre TRIG = EDI 1", each ([Trigramme] = "EDI")),
+    #"Lignes groupées" = Table.Group(#"Filtre TRIG = EDI 2", {"Source.Name", "dom", "code", "Trigramme", "date", "periode"}, {{"Consommé_PRJ-01735", each List.Sum([#"Consommé/Ressources"]), type nullable number}}),
+    #"Requêtes fusionnées" = Table.NestedJoin(#"Lignes groupées", {"dom", "code", "Trigramme"}, #"Taux AAQ _ intermédiaire", {"dom", "code", "Trigramme"}, "Get Conso AAQ YTD", JoinKind.LeftOuter),
+    #"Get Conso AAQ YTD développé" = Table.ExpandTableColumn(#"Requêtes fusionnées", "Get Conso AAQ YTD", {"Consommé AAQ YTD EDI"}, {"Consommé AAQ YTD EDI"}),
+    #"Calcul Conso PRJ-01857" = Table.AddColumn(#"Get Conso AAQ YTD développé", "Consommation PRJ-01857", each 
+[#"Consommé_PRJ-01735"]* (1000/[#"Consommé AAQ YTD EDI"]), type number),
+    #"Colonne Description" = Table.AddColumn(#"Calcul Conso PRJ-01857", "Description", each "Socle Neo SI CARDIF IARD"),
+    #"Colonne SousEquipe" = Table.AddColumn(#"Colonne Description", "SousEquipe", each "EDI"),
+    #"Colonne Equipe" = Table.AddColumn(#"Colonne SousEquipe", "Equipe", each "EDI"),
+    #"Colonne Pole" = Table.AddColumn(#"Colonne Equipe", "Pole", each "EDI"),
+    #"Colonne Entite" = Table.AddColumn(#"Colonne Pole", "Entite", each "EDI"),
+    #"Colonne ID-DOM-Entite" = Table.AddColumn(#"Colonne Entite", "ID-DOM-Entite", each "IT3D-PRJ-01857-EDI"),
+    #"Colonne ID DOM" = Table.DuplicateColumn(#"Colonne ID-DOM-Entite", "ID-DOM-Entite", "ID-DOM"),
+    #"Premiers caractères extraits" = Table.TransformColumns(#"Colonne ID DOM", {{"ID-DOM", each Text.Start(_, 14), type text}}),
+    #"Colonne TAG" = Table.AddColumn(#"Premiers caractères extraits", "Tag", each ""),
+    ColonneDate_arretee = Table.AddColumn(#"Colonne TAG", "Date_arretee", each if [Source.Name] = "FULL" then Date_Arrete else if [Source.Name] = Dossier_AM then Date_Arrete else if [Source.Name] = Dossier_AM_1 then #"Date_Arrete-1" else null, type date),
+    #"Colonne Domaine Final" = Table.RenameColumns(ColonneDate_arretee,{{"dom", "Domaine_final"}}),
+    #"Valeur remplacée" = Table.ReplaceValue(#"Colonne Domaine Final","CARDIF IARD","IT3D",Replacer.ReplaceText,{"Domaine_final"}),
+    #"Colonne Domaine Triskell" = Table.DuplicateColumn(#"Valeur remplacée", "Domaine_final", "Domaine_Triskell"),
+    #"Valeur remplacée1" = Table.ReplaceValue(#"Colonne Domaine Triskell","PRJ-01735","PRJ-01857",Replacer.ReplaceText,{"code"}),
+    #"Colonnes supprimées" = Table.RemoveColumns(#"Valeur remplacée1",{"Consommé_PRJ-01735", "Consommé AAQ YTD EDI"}),
+    #"Colonne Consommé" = Table.AddColumn(#"Colonnes supprimées", "Consommé", each 0, type number),
+    #"Colonne Cycle de vie" = Table.AddColumn(#"Colonne Consommé", "lifecycle", each "6. Clôturé"),
+    #"Colonne Mois" = Table.AddColumn(#"Colonne Cycle de vie", "Mois", each Date.Month([Date_arretee]), Int64.Type),
+    #"Duplication de la colonne" = Table.DuplicateColumn(#"Colonne Mois", "Domaine_final", "Domaine_final - Copier"),
+    #"Colonnes renommées" = Table.RenameColumns(#"Duplication de la colonne",{{"Domaine_final - Copier", "Domaine"}})
+in
+    #"Colonnes renommées"
