@@ -1,19 +1,51 @@
 let
+    // Charger les données de la source
     Source = Base_Informations_out,
-    #"FILTRE DOM HP" = Table.SelectRows(Source, each ([Domaine] <> "HP")),
-    #"Filtre RD MNT-0056" = Table.SelectRows(#"FILTRE DOM HP", each not Text.StartsWith([Nom_Projet], "MNT-0056") and [Nom_Projet] <> "MNT-01005"),
-    #"Entité liste" = Table.AddColumn(#"Filtre RD MNT-0056", "Entité", each Liste_Entite),
-    #"Entité développé" = Table.ExpandListColumn(#"Entité liste", "Entité"),
-   
-    #"ID-DOM-Entité" = Table.AddColumn(#"Entité développé", "ID-DOM-Entite", each Text.Combine({[#"ID-DOM"], "-", [Entité]}), type text),
-    #"Requêtes fusionnées" = Table.NestedJoin(#"ID-DOM-Entité", {"ID-DOM-Entite"}, Base_consommation_out_groupée, {"ID-DOM-Entite"}, "Base_consommation_out_groupée", JoinKind.LeftOuter),
-    #"Base_consommation_out_groupée développé" = Table.ExpandTableColumn(#"Requêtes fusionnées", "Base_consommation_out_groupée", {"Conso", "Conso_NET"}, {"Conso", "Conso_NET"}),
-    #"Type modifié1" = Table.TransformColumnTypes(#"Base_consommation_out_groupée développé",{{"Conso", type number}, {"Conso_NET", type number}}),
-    #"Requêtes fusionnées1" = Table.NestedJoin(#"Type modifié1", {"ID-DOM-Entite"}, Base_Charges_out_groupée, {"ID-DOM-Entite"}, "Base_Charges_out_groupée", JoinKind.LeftOuter),
-    #"Base_Charges_out_groupée développé" = Table.ExpandTableColumn(#"Requêtes fusionnées1", "Base_Charges_out_groupée", {"CGA", "Charge Réf"}, {"CGA", "Charge Réf"}),
-    #"Date arrete" = Table.AddColumn(#"Base_Charges_out_groupée développé", "Date_Arrete", each Date_Arrete),
-    #"Type modifié" = Table.TransformColumnTypes(#"Date arrete",{{"Date_Arrete", type date}, {"date", type date}}),
-    #"Colonnes renommées" = Table.RenameColumns(#"Type modifié",{{"date", "date d'extraction"}}),
-    #"Valeur remplacée" = Table.ReplaceValue(#"Colonnes renommées",null,0,Replacer.ReplaceValue,{"Conso", "Conso_NET", "CGA", "Charge Réf"})
+
+    // Filtrer les projets du domaine "HP"
+    #"Filtrer Domaine HP" = Table.SelectRows(Source, each ([Domaine] <> "HP")),
+
+    // Filtrer les projets spécifiques ("MNT-0056" et "MNT-01005") 
+    #"Filtrer Projets MNT" = Table.SelectRows(#"Filtrer Domaine HP", each not Text.StartsWith([Nom_Projet], "MNT-0056") and [Nom_Projet] <> "MNT-01005"),
+
+    // Ajouter une colonne "Entité" contenant une liste des entités
+    #"Ajouter Entité" = Table.AddColumn(#"Filtrer Projets MNT", "Entité", each Liste_Entite),
+
+    // Développer la colonne "Entité" (chaque ligne va générer une ligne par entité dans la liste)
+    #"Développer Entité" = Table.ExpandListColumn(#"Ajouter Entité", "Entité"),
+
+    // Créer une nouvelle colonne "ID-DOM-Entite" en combinant les colonnes "ID-DOM" et "Entité"
+    #"Ajouter ID-DOM-Entité" = Table.AddColumn(#"Développer Entité", "ID-DOM-Entite", each Text.Combine({[#"ID-DOM"], "-", [Entité]}), type text),
+
+    // Joindre les consommations à partir de la table Base_consommation_out_groupée
+    #"Joindre Consommation" = Table.NestedJoin(#"Ajouter ID-DOM-Entité", {"ID-DOM-Entite"}, Base_consommation_out_groupée, {"ID-DOM-Entite"}, "Base_consommation_out_groupée", JoinKind.LeftOuter),
+
+    // Développer les colonnes "Conso" et "Conso_NET" de la table jointe, puis les typer en tant que nombres
+    #"Développer et Typer Consommation" = Table.TransformColumnTypes(
+        Table.ExpandTableColumn(#"Joindre Consommation", "Base_consommation_out_groupée", {"Conso", "Conso_NET"}, {"Conso", "Conso_NET"}),
+        {{"Conso", type number}, {"Conso_NET", type number}}
+    ),
+
+    // Joindre les charges à partir de la table Base_Charges_out_groupée
+    #"Joindre Charges" = Table.NestedJoin(#"Développer et Typer Consommation", {"ID-DOM-Entite"}, Base_Charges_out_groupée, {"ID-DOM-Entite"}, "Base_Charges_out_groupée", JoinKind.LeftOuter),
+
+    // Développer les colonnes "CGA" et "Charge Réf" de la table jointe, puis les typer en tant que nombres
+    #"Développer et Typer Charges" = Table.TransformColumnTypes(
+        Table.ExpandTableColumn(#"Joindre Charges", "Base_Charges_out_groupée", {"CGA", "Charge Réf"}, {"CGA", "Charge Réf"}),
+        {{"CGA", type number}, {"Charge Réf", type number}}
+    ),
+
+    // Ajouter une colonne "Date_Arrete" avec la date de référence "Date_Arrete"
+    #"Ajouter Date Arrete" = Table.AddColumn(#"Développer et Typer Charges", "Date_Arrete", each Date_Arrete),
+
+    // Changer le type des colonnes "Date_Arrete" et "date"
+    #"Modifier Types de Date" = Table.TransformColumnTypes(#"Ajouter Date Arrete", {{"Date_Arrete", type date}, {"date", type date}}),
+
+    // Renommer la colonne "date" en "date d'extraction"
+    #"Renommer Colonne Date" = Table.RenameColumns(#"Modifier Types de Date", {{"date", "date d'extraction"}}),
+
+    // Remplacer les valeurs nulles par 0 dans les colonnes de consommation et de charges
+    #"Remplacer Valeurs Nulles" = Table.ReplaceValue(#"Renommer Colonne Date", null, 0, Replacer.ReplaceValue, {"Conso", "Conso_NET", "CGA", "Charge Réf"})
+
 in
-    #"Valeur remplacée"
+    #"Remplacer Valeurs Nulles"
