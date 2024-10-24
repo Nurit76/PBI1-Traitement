@@ -1,0 +1,19 @@
+let
+    Source = Base_Informations_out,
+    #"FILTRE DOM HP" = Table.SelectRows(Source, each ([Domaine] <> "HP")),
+    #"Filtre RD MNT-0056" = Table.SelectRows(#"FILTRE DOM HP", each not Text.StartsWith([Nom_Projet], "MNT-0056") and [Nom_Projet] <> "MNT-01005"),
+    #"Entité liste" = Table.AddColumn(#"Filtre RD MNT-0056", "Entité", each Liste_Entite),
+    #"Entité développé" = Table.ExpandListColumn(#"Entité liste", "Entité"),
+   
+    #"ID-DOM-Entité" = Table.AddColumn(#"Entité développé", "ID-DOM-Entite", each Text.Combine({[#"ID-DOM"], "-", [Entité]}), type text),
+    #"Requêtes fusionnées" = Table.NestedJoin(#"ID-DOM-Entité", {"ID-DOM-Entite"}, Base_consommation_out_groupée, {"ID-DOM-Entite"}, "Base_consommation_out_groupée", JoinKind.LeftOuter),
+    #"Base_consommation_out_groupée développé" = Table.ExpandTableColumn(#"Requêtes fusionnées", "Base_consommation_out_groupée", {"Conso", "Conso_NET"}, {"Conso", "Conso_NET"}),
+    #"Type modifié1" = Table.TransformColumnTypes(#"Base_consommation_out_groupée développé",{{"Conso", type number}, {"Conso_NET", type number}}),
+    #"Requêtes fusionnées1" = Table.NestedJoin(#"Type modifié1", {"ID-DOM-Entite"}, Base_Charges_out_groupée, {"ID-DOM-Entite"}, "Base_Charges_out_groupée", JoinKind.LeftOuter),
+    #"Base_Charges_out_groupée développé" = Table.ExpandTableColumn(#"Requêtes fusionnées1", "Base_Charges_out_groupée", {"CGA", "Charge Réf"}, {"CGA", "Charge Réf"}),
+    #"Date arrete" = Table.AddColumn(#"Base_Charges_out_groupée développé", "Date_Arrete", each Date_Arrete),
+    #"Type modifié" = Table.TransformColumnTypes(#"Date arrete",{{"Date_Arrete", type date}, {"date", type date}}),
+    #"Colonnes renommées" = Table.RenameColumns(#"Type modifié",{{"date", "date d'extraction"}}),
+    #"Valeur remplacée" = Table.ReplaceValue(#"Colonnes renommées",null,0,Replacer.ReplaceValue,{"Conso", "Conso_NET", "CGA", "Charge Réf"})
+in
+    #"Valeur remplacée"
